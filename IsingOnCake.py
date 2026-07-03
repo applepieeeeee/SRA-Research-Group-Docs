@@ -8,7 +8,6 @@ class PartitionSpec:
     rows: int
     cols: int
 
-
 @dataclass(frozen=True) #class for each partition's basic information
 class Partition:
     partition_id: int
@@ -22,17 +21,12 @@ class Partition:
     @property
     def shape(self) -> tuple[int, int]: #returns the number of rows by number of columns in each partition 
         return (self.row_end -self.row_start, self.col_end- self.col_start)
-    
-
-
 
 #IMPORTANT: actual instance template of ising model
 @dataclass(frozen=True)
 class IsingInstance:
     horizontal: np.ndarray #holds all the horizontal correlations
     vertical: np.ndarray # same thing but vertical
-
-
 
     fields: np.ndarray  #in hindsight maybe I shouldn't have added this since our simulation should be 0 field
                         #but now finding the gridsize depends on this so probably dont need to get rid of it for the time being
@@ -55,7 +49,6 @@ class SimulationResult:
     def best_energy(self) -> float: #returns the best distribution found over the course of the entire eimulation
         return float(np.min(self.energies))
 
-
 #stores info from adjacent "chips"from all cardinal directions
 #for when communication happens in the distributed system
 #each array holds a strip of boundary values
@@ -66,7 +59,6 @@ class GhostBoundary:
     left: np.ndarray |None
     right: np.ndarray | None
 
-
 def _ghost_boundary_to_float(ghost: GhostBoundary) -> GhostBoundary:
     return GhostBoundary(
         up=None if ghost.up is None else ghost.up.astype(np.float32),
@@ -75,7 +67,6 @@ def _ghost_boundary_to_float(ghost: GhostBoundary) -> GhostBoundary:
         right=None if ghost.right is None else ghost.right.astype(np.float32),
     )
 
-
 def _decay_ghost_boundary(ghost: GhostBoundary, decay: float) -> GhostBoundary:
     return GhostBoundary(
         up=None if ghost.up is None else (decay * ghost.up).astype(np.float32),
@@ -83,7 +74,6 @@ def _decay_ghost_boundary(ghost: GhostBoundary, decay: float) -> GhostBoundary:
         left=None if ghost.left is None else (decay * ghost.left).astype(np.float32),
         right=None if ghost.right is None else (decay * ghost.right).astype(np.float32),
     )
-
 
 def random_bimodal_instance(
     rows: int,
@@ -106,21 +96,11 @@ def random_bimodal_instance(
     #return finished Ising model
     #in thoery now it should be ready for simulation
 
-
-
-
-
-
-
-
 def random_spin_state(rows: int, cols: int, rng: np.random.Generator): #creates random grid of spins; either -1 or 1
     return rng.choice(np.array([-1, 1], dtype=np.int8), size=(rows, cols)).astype(np.int8)
 
-
-
 #splits up the full grid into smaller partitions to simulate out networking thing
 def build_partitions(rows: int, cols: int, spec: PartitionSpec):
-
 
     if rows % spec.rows != 0 or cols % spec.cols != 0:
         raise ValueError("If this error is happening. you are just really stupid")
@@ -128,7 +108,6 @@ def build_partitions(rows: int, cols: int, spec: PartitionSpec):
     block_height = rows // spec.rows #floor division to convert to integer
     block_width = cols // spec.cols
     partitions: list[Partition] = [] #list of all partitions
-
 
     #just loops and calculates the row and column numbers for each partition
     partition_id = 0
@@ -162,8 +141,6 @@ def build_partitions(rows: int, cols: int, spec: PartitionSpec):
             partition_id += 1
     return partitions
 
-
-
 def total_energy(state: np.ndarray, instance: IsingInstance): #computes total energy of current spin grid
     #calculates contribution horizontaly and vertically
     horizontal_term = np.sum(instance.horizontal * state[:, :-1] * state[:, 1:]) 
@@ -171,10 +148,8 @@ def total_energy(state: np.ndarray, instance: IsingInstance): #computes total en
     field_term = np.sum(instance.fields * state)
     return float(-(horizontal_term + vertical_term + field_term))
 
-
 def _sigmoid(x: np.ndarray) -> np.ndarray: #calculates sigmoid element by element for an array; which is why it returns an array
     return 1.0 / (1.0 + np.exp(-x))
-
 
 def _full_local_field(state: np.ndarray, instance: IsingInstance) -> np.ndarray:
     local_field = instance.fields.astype(np.float32).copy()
@@ -192,7 +167,6 @@ def _partition_local_field(state: np.ndarray,instance: IsingInstance,partition: 
     c0, c1 = partition.col_start, partition.col_end
     #row and column range for the partition
 
-
     local_state = state[r0:r1, c0:c1] #actual part of the spin grid belongign to this partition
     local_field = instance.fields[r0:r1, c0:c1].astype(np.float32).copy()
 
@@ -204,7 +178,6 @@ def _partition_local_field(state: np.ndarray,instance: IsingInstance,partition: 
     if r1 - r0 > 1: #same thing as previous if statement but for vertical neighbors
         local_field[1:, :] += instance.vertical[r0 : r1 - 1, c0:c1] * local_state[:-1, :]
         local_field[:-1, :] += instance.vertical[r0 : r1 - 1, c0:c1] * local_state[1:, :]
-
 
     #accounts for neighboring partitions in all cardinal directions
     if c0 > 0 and ghost.left is not None:
@@ -219,14 +192,12 @@ def _partition_local_field(state: np.ndarray,instance: IsingInstance,partition: 
     #returns a 2d numpy array of local fields for this partition
     return local_field
 
-
 def _update_sites(state_slice: np.ndarray, local_field: np.ndarray, beta: float,mask: np.ndarray, rng: np.random.Generator):
     probabilities = _sigmoid(2.0 * beta * local_field[mask])
     draws = rng.random(probabilities.shape[0])
     state_slice[mask] = np.where(draws < probabilities, 1, -1).astype(np.int8)
     #calculates probabilities for spin sites that we are updating
     #see comments in build partitions function
-
 
 #basically just captures full boundary information for each partition for a given state
 def _snapshot_ghosts(state: np.ndarray, partitions: list[Partition]):
@@ -243,10 +214,6 @@ def _snapshot_ghosts(state: np.ndarray, partitions: list[Partition]):
             right=state[r0:r1, c1].copy() if c1 < cols else None,
         )
     return ghosts
-
-
-
-
 
 #WARNING: GPT
 def simulate_monolithic(instance: IsingInstance, beta: float, steps: int, seed: int, initial_state: np.ndarray | None = None, record_history: bool = False):
@@ -388,4 +355,3 @@ def simulate_partitioned_belief(
 
 #WARNING THE LAST THREE FUNCTIONS ARE GPT, COULDN'T FIGURE OUT HOW TO ACTUALLY WRAP EVERYTHING TOGETHER
 #WILL GO AHEAD AND VERIFY LATER
-

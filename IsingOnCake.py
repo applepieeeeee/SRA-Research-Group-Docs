@@ -254,14 +254,7 @@ def _snapshot_ghosts(state: np.ndarray, partitions: list[Partition]):
 
 
 
-#WARNING: GPT
 def simulate_monolithic(instance: IsingInstance, beta: float, steps: int, seed: int, initial_state: np.ndarray | None = None, record_history: bool = False):
-    """Ground-truth single-machine simulation.
-
-    Runs Gibbs sampling on the full grid with no partitioning and no
-    boundary staleness. Use this as the reference to compare distributed
-    methods against.
-    """
     rng = np.random.default_rng(seed)
     if initial_state is None:
         state = random_spin_state(instance.rows, instance.cols, rng)
@@ -313,31 +306,11 @@ def simulate_partitioned_frozen(
         record_history=record_history,
     )
 
-#WARNING: GPT
-def simulate_partitioned_belief(
-    instance: IsingInstance,
-    beta: float,
-    steps: int,
-    seed: int,
-    partition_spec: PartitionSpec,
-    communication_interval: int,
-    belief_mode: str = "decay_to_zero",
-    belief_decay: float = 0.9,
+def simulate_partitioned_belief(instance: IsingInstance,
+    beta: float, steps: int, seed: int, partition_spec: PartitionSpec, communication_interval: int, belief_mode: str = "decay_to_zero", belief_decay: float = 0.9,
     initial_state: np.ndarray | None = None,
-    record_history: bool = False,
-) -> SimulationResult:
-    """Distributed simulation with a staleness model for boundary (ghost) spins.
+    record_history: bool = False,):
 
-    Ghost boundaries are refreshed every `communication_interval` steps.
-    Between refreshes:
-      - belief_mode="frozen": ghost values are held exactly fixed.
-      - belief_mode="decay_to_zero": ghost values are multiplied by
-        `belief_decay` every step, modeling decreasing confidence in
-        stale neighbor information.
-
-    This is the baseline the learned (MLP) staleness model will be
-    compared against.
-    """
     if communication_interval < 1:
         raise ValueError("communication_interval must be at least 1.")
     if belief_mode not in {"frozen", "decay_to_zero"}:
@@ -386,10 +359,6 @@ def simulate_partitioned_belief(
         communication_interval=communication_interval,
     )
 
-#WARNING THE LAST THREE FUNCTIONS ARE GPT, COULDN'T FIGURE OUT HOW TO ACTUALLY WRAP EVERYTHING TOGETHER
-#WILL GO AHEAD AND VERIFY LATER
-
-#WARNING: Claude
 def check_partitioned_matches_monolithic(rows=8, cols=8, steps=200, beta=0.5, seed=0):
     rng = np.random.default_rng(seed)
     instance = random_bimodal_instance(rows, cols, rng)

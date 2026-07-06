@@ -280,7 +280,69 @@ def simulate_monolithic(instance: IsingInstance, beta: float, steps: int, seed: 
 
     return SimulationResult(energies=energies, final_state=state.copy(), history=history)
 
-#WARNING: Claude
+def _simulate_partitioned(
+    instance: IsingInstance,
+    beta: float,
+    steps: int,
+    seed: int,
+    partition_spec: PartitionSpec,
+    communication_interval: int,
+    belief_decay: float | None = None,
+    initial_state: np.ndarray | None = None,
+    record_history: bool = False,
+) -> SimulationResult:
+    rng = np.random.default_rng(seed)
+    state = (
+        random_spin_state(instance.rows, instance.cols, rng)
+        if initial_state is None
+        else initial_state.astype(np.int8).copy()
+    )
+
+    partitions = build_partitions(instance.rows, instance.cols, partition_spec)
+    energies = np.empty(steps, dtype=np.float32)
+    history = np.empty((steps, instance.rows, instance.cols), dtype=np.int8) if record_history else None
+
+    ghosts = {
+        pid: _ghost_boundary_to_float(ghost)
+        for pid, ghost in _snapshot_ghosts(state, partitions).items()
+    }
+
+    for step in range(steps):
+        if step % communication_interval == 0:
+            ghosts = {
+                pid: _ghost_boundary_to_float(ghost)
+                for pid, ghost in _snapshot_ghosts(state, partitions).items()
+            }
+        elif belief_decay is not None:
+            ghosts = {
+                pid: _decay_ghost_boundary(ghost, belief_decay)
+                for pid, ghost in ghosts.items()
+            }
+
+        for partition in partitions:
+            r0, r1 = partition.row_start, partition.row_end
+            c0, c1 = partition.col_start, partition.col_end
+            local_state = state[r0:r1, c0:c1]
+
+            local_field = _partition_local_field(state, instance, partition, ghosts[partition.partition_id])
+            _update_sites(local_state, local_field, beta, partition.even_mask, rng)
+
+            local_field = _partition_local_field(state, instance, partition, ghosts[partition.partition_id])
+            _update_sites(local_state, local_field, beta, partition.odd_mask, rng)
+
+        energies[step] = total_energy(state, instance)
+
+        if history is not None:
+            history[step] = state
+
+    return SimulationResult(
+        energies=energies,
+        final_state=state.copy(),
+        history=history,
+        communication_interval=communication_interval,
+    )
+
+
 def simulate_partitioned_frozen(
     instance: IsingInstance,
     beta: float,
@@ -291,70 +353,38 @@ def simulate_partitioned_frozen(
     initial_state: np.ndarray | None = None,
     record_history: bool = False,
 ) -> SimulationResult:
-    """Distributed simulation where ghost boundaries are frozen between
-    communication rounds (never decayed). Thin wrapper around
-    simulate_partitioned_belief for backward compatibility."""
-    return simulate_partitioned_belief(
-        instance=instance,
-        beta=beta,
-        steps=steps,
-        seed=seed,
-        partition_spec=partition_spec,
-        communication_interval=communication_interval,
-        belief_mode="frozen",
+    return _simulate_partitioned(
+        instance,
+        beta,
+        steps,
+        seed,
+        partition_spec,
+        communication_interval,
+        belief_decay=None,
         initial_state=initial_state,
         record_history=record_history,
     )
 
-def simulate_partitioned_belief(instance: IsingInstance,
-    beta: float, steps: int, seed: int, partition_spec: PartitionSpec, communication_interval: int, belief_mode: str = "decay_to_zero", belief_decay: float = 0.9,
+
+def simulate_partitioned_belief(
+    instance: IsingInstance,
+    beta: float,
+    steps: int,
+    seed: int,
+    partition_spec: PartitionSpec,
+    communication_interval: int,
+    belief_decay: float = 0.9,
     initial_state: np.ndarray | None = None,
-    record_history: bool = False,):
-
-    if communication_interval < 1:
-        raise ValueError("communication_interval must be at least 1.")
-    if belief_mode not in {"frozen", "decay_to_zero"}:
-        raise ValueError("belief_mode must be one of: frozen, decay_to_zero")
-    if not 0.0 <= belief_decay <= 1.0:
-        raise ValueError("belief_decay must be between 0 and 1.")
-
-    rng = np.random.default_rng(seed)
-    if initial_state is None:
-        state = random_spin_state(instance.rows, instance.cols, rng)
-    else:
-        state = initial_state.astype(np.int8).copy()
-
-    partitions = build_partitions(instance.rows, instance.cols, partition_spec)
-    energies = np.empty(steps, dtype=np.float32)
-    history = np.empty((steps, instance.rows, instance.cols), dtype=np.int8) if record_history else None
-    ghosts = {partition_id: _ghost_boundary_to_float(ghost) for partition_id, ghost in _snapshot_ghosts(state, partitions).items()}
-
-    for step in range(steps):
-        if step % communication_interval == 0:
-            ghosts = {
-                partition_id: _ghost_boundary_to_float(ghost)
-                for partition_id, ghost in _snapshot_ghosts(state, partitions).items()
-            }
-        elif belief_mode == "decay_to_zero":
-            ghosts = {partition_id: _decay_ghost_boundary(ghost, belief_decay) for partition_id, ghost in ghosts.items()}
-
-        for partition in partitions:
-            r0, r1 = partition.row_start, partition.row_end
-            c0, c1 = partition.col_start, partition.col_end
-            local_state = state[r0:r1, c0:c1]
-
-            local_field = _partition_local_field(state, instance, partition, ghosts[partition.partition_id])
-            _update_sites(local_state, local_field, beta, partition.even_mask, rng)
-            local_field = _partition_local_field(state, instance, partition, ghosts[partition.partition_id])
-            _update_sites(local_state, local_field, beta, partition.odd_mask, rng)
-
-        energies[step] = total_energy(state, instance)
-        if history is not None:
-            history[step] = state
-
-    return SimulationResult(
-        energies=energies,
-        final_state=state.copy(),
-        history=history,
-        communication_interval=communication_interval,
+    record_history: bool = False,
+):
+    return _simulate_partitioned(
+        instance,
+        beta,
+        steps,
+        seed,
+        partition_spec,
+        communication_interval,
+        belief_decay=belief_decay,
+        initial_state=initial_state,
+        record_history=record_history,
     )

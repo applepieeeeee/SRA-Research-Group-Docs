@@ -358,24 +358,3 @@ def simulate_partitioned_belief(instance: IsingInstance,
         history=history,
         communication_interval=communication_interval,
     )
-
-def check_partitioned_matches_monolithic(rows=8, cols=8, steps=200, beta=0.5, seed=0):
-    rng = np.random.default_rng(seed)
-    instance = random_bimodal_instance(rows, cols, rng)
-    initial_state = random_spin_state(rows, cols, rng)
-
-    mono = simulate_monolithic(
-        instance, beta=beta, steps=steps, seed=seed, initial_state=initial_state
-    )
-    part = simulate_partitioned_belief(
-        instance, beta=beta, steps=steps, seed=seed,
-        partition_spec=PartitionSpec(rows=2, cols=2),
-        communication_interval=1,
-        belief_mode="frozen",
-        initial_state=initial_state,
-    )
-
-    print("monolithic best energy:", mono.best_energy)
-    print("partitioned (interval=1) best energy:", part.best_energy)
-    # These won't be bit-identical (RNG draw order differs) but should be
-    # in the same ballpark over many steps/seeds if the physics is consistent.

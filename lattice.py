@@ -304,7 +304,6 @@ def simulate_monolithic(
 
     return SimulationResult(energies=energies, final_state=state.copy(), history=history)
 
-
 def _simulate_partitioned(
     instance: IsingInstance,
     beta: float,
@@ -346,18 +345,61 @@ def _simulate_partitioned(
                 for pid, g in ghosts.items()
             }
 
+        # even half-sweep
+        read_state = state.copy()
+        write_state = state.copy()
+
         for p in partitions:
             x0, x1 = p.x_start, p.x_end
             y0, y1 = p.y_start, p.y_end
             z0, z1 = p.z_start, p.z_end
-            local_state = state[x0:x1, y0:y1, z0:z1]
 
-            lf = _partition_local_field(state, instance, p, ghosts[p.partition_id])
-            _update_sites(local_state, lf, beta, p.even_mask, rng)
+            local_state = write_state[x0:x1, y0:y1, z0:z1]
 
-            lf = _partition_local_field(state, instance, p, ghosts[p.partition_id])
-            _update_sites(local_state, lf, beta, p.odd_mask, rng)
+            lf = _partition_local_field(
+                read_state,
+                instance,
+                p,
+                ghosts[p.partition_id],
+            )
 
+            _update_sites(
+                local_state,
+                lf,
+                beta,
+                p.even_mask,
+                rng,
+            )
+
+        state = write_state
+
+        # odd half-sweep
+        read_state = state.copy()
+        write_state = state.copy()
+
+        for p in partitions:
+            x0, x1 = p.x_start, p.x_end
+            y0, y1 = p.y_start, p.y_end
+            z0, z1 = p.z_start, p.z_end
+
+            local_state = write_state[x0:x1, y0:y1, z0:z1]
+
+            lf = _partition_local_field(
+                read_state,
+                instance,
+                p,
+                ghosts[p.partition_id],
+            )
+
+            _update_sites(
+                local_state,
+                lf,
+                beta,
+                p.odd_mask,
+                rng,
+            )
+
+        state = write_state
         energies[step] = total_energy(state, instance)
         if history is not None:
             history[step] = state
@@ -368,7 +410,6 @@ def _simulate_partitioned(
         history=history,
         communication_interval=communication_interval,
     )
-
 
 def simulate_partitioned_frozen(
     instance: IsingInstance,

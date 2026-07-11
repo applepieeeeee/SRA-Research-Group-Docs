@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 from dataclasses import dataclass
 
 # comes from the simulation file
-from lattice.py import IsingInstance, random_bimodal_instance, total_energy
+from lattice import IsingInstance, random_bimodal_instance, total_energy
 
 #vars
 #equilibrium dataset (dataclass)
@@ -24,8 +24,8 @@ class EquilibriumDataset:
 
 
 # calculate hamiltonian: calculates the total energy of model
-def calculate_hamiltonian(state: np.ndarray, horizontal: np.ndarray, vertical: np.ndarray, fields):
-
+def calculate_hamiltonian(state: np.ndarray, instance: IsingInstance):
+    return total_energy(state, instance)
 
 #hamiltonian H = -sum of (J_ij * s_i * s_j)
 

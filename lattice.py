@@ -33,9 +33,9 @@ class Partition:
 # IMPORTANT: the actual 3D Edwards-Anderson instance
 @dataclass(frozen=True)
 class IsingInstance:
-    bond_x: np.ndarray   # couplings along x, shape (nx-1, ny, nz)
-    bond_y: np.ndarray   # couplings along y, shape (nx, ny-1, nz)
-    bond_z: np.ndarray   # couplings along z, shape (nx, ny, nz-1)
+    bond_x: np.ndarray   # couplings along x, shape (nx, ny, nz)
+    bond_y: np.ndarray   # couplings along y, shape (nx, ny, nz)
+    bond_z: np.ndarray   # couplings along z, shape (nx, ny, nz)
     fields: np.ndarray   # maybe not necessary
 
     @property
@@ -100,9 +100,9 @@ def random_bimodal_instance(
     field_scale: float = 0.0,
 ):
     # creates random ising problem
-    bond_x = rng.choice(np.array([-1.0, 1.0], dtype=np.float32), size=(nx - 1, ny, nz))
-    bond_y = rng.choice(np.array([-1.0, 1.0], dtype=np.float32), size=(nx, ny - 1, nz))
-    bond_z = rng.choice(np.array([-1.0, 1.0], dtype=np.float32), size=(nx, ny, nz - 1))
+    bond_x = rng.choice(np.array([-1.0, 1.0], dtype=np.float32), size=(nx, ny, nz))
+    bond_y = rng.choice(np.array([-1.0, 1.0], dtype=np.float32), size=(nx, ny, nz))
+    bond_z = rng.choice(np.array([-1.0, 1.0], dtype=np.float32), size=(nx, ny, nz))
 
     if field_scale > 0.0:
         fields = rng.normal(loc=0.0, scale=field_scale, size=(nx, ny, nz)).astype(np.float32)
@@ -163,9 +163,9 @@ def build_partitions(nx: int, ny: int, nz: int, spec: PartitionSpec):
 
 def total_energy(state: np.ndarray, instance: IsingInstance):
     #Sums the energy
-    x_term = np.sum(instance.bond_x * state[:-1, :, :] * state[1:, :, :])
-    y_term = np.sum(instance.bond_y * state[:, :-1, :] * state[:, 1:, :])
-    z_term = np.sum(instance.bond_z * state[:, :, :-1] * state[:, :, 1:])
+    x_term = np.sum(instance.bond_x * state * np.roll(state, -1, axis = 0))
+    y_term = np.sum(instance.bond_y * state * np.roll(state, -1, axis = 1))
+    z_term = np.sum(instance.bond_z * state * np.roll(state, -1, axis = 2))
     field_term = np.sum(instance.fields * state)
     return float(-(x_term + y_term + z_term + field_term))
 
@@ -176,15 +176,15 @@ def _sigmoid(x: np.ndarray) -> np.ndarray:
 
 def _full_local_field(state: np.ndarray, instance: IsingInstance) -> np.ndarray:
     lf = instance.fields.astype(np.float32).copy()
-    # x-axis neighbours
-    lf[1:, :, :]  += instance.bond_x * state[:-1, :, :]   
-    lf[:-1, :, :] += instance.bond_x * state[1:, :, :]    
-    # y-axis neighbours
-    lf[:, 1:, :]  += instance.bond_y * state[:, :-1, :]
-    lf[:, :-1, :] += instance.bond_y * state[:, 1:, :]
-    # z-axis neighbours
-    lf[:, :, 1:]  += instance.bond_z * state[:, :, :-1]
-    lf[:, :, :-1] += instance.bond_z * state[:, :, 1:]
+    ax = instance.bond_x * state
+    lf += np.roll(ax, 1, axis=0)
+    lf += instance.bond_x * np.roll(state, -1, axis=0)
+    ay = instance.bond_y * state
+    lf += np.roll(ay, 1, axis=1)
+    lf += instance.bond_y * np.roll(state, -1, axis=1)
+    az = instance.bond_z * state
+    lf += np.roll(az, 1, axis=2)
+    lf += instance.bond_z * np.roll(state, -1, axis=2)
     return lf
 
 
@@ -198,39 +198,50 @@ def _partition_local_field(
     x0, x1 = partition.x_start, partition.x_end
     y0, y1 = partition.y_start, partition.y_end
     z0, z1 = partition.z_start, partition.z_end
+    nx, ny, nz = instance.nx, instance.ny, instance.nz
+    bx = instance.bond_x[x0:x1, y0:y1, z0:z1]
+    by = instance.bond_y[x0:x1, y0:y1, z0:z1]
+    bz = instance.bond_z[x0:x1, y0:y1, z0:z1]
 
     local_state = state[x0:x1, y0:y1, z0:z1]                       # this block's spins
-    local_field = instance.fields[x0:x1, y0:y1, z0:z1].astype(np.float32).copy()
+    lf = instance.fields[x0:x1, y0:y1, z0:z1].astype(np.float32).copy()
 
-    # influence of neighbors 
-    if x1 - x0 > 1:
-        bxs = instance.bond_x[x0:x1 - 1, y0:y1, z0:z1]
-        local_field[1:, :, :]  += bxs * local_state[:-1, :, :]
-        local_field[:-1, :, :] += bxs * local_state[1:, :, :]
-    if y1 - y0 > 1:
-        bys = instance.bond_y[x0:x1, y0:y1 - 1, z0:z1]
-        local_field[:, 1:, :]  += bys * local_state[:, :-1, :]
-        local_field[:, :-1, :] += bys * local_state[:, 1:, :]
-    if z1 - z0 > 1:
-        bzs = instance.bond_z[x0:x1, y0:y1, z0:z1 - 1]
-        local_field[:, :, 1:]  += bzs * local_state[:, :, :-1]
-        local_field[:, :, :-1] += bzs * local_state[:, :, 1:]
+    if x1 - x0 == nx:
+        ax = bx * local_state
+        lf += np.roll(ax, 1, axis=0)
+        lf += bx * np.roll(local_state, -1, axis=0)
+    else:
+        lf[:-1, :, :] += bx[:-1, :, :] * local_state[1:, :, :]   # +x interior
+        lf[1:, :, :]  += bx[:-1, :, :] * local_state[:-1, :, :]  # -x interior
+        if ghost.x_lo is not None:
+            lf[0, :, :]  += instance.bond_x[(x0 - 1) % nx, y0:y1, z0:z1] * ghost.x_lo
+        if ghost.x_hi is not None:
+            lf[-1, :, :] += instance.bond_x[x1 - 1, y0:y1, z0:z1] * ghost.x_hi
 
-    # accounts for neighboring paritions in the x,y,z directions
-    if x0 > 0 and ghost.x_lo is not None:
-        local_field[0, :, :]  += instance.bond_x[x0 - 1, y0:y1, z0:z1] * ghost.x_lo
-    if x1 < instance.nx and ghost.x_hi is not None:
-        local_field[-1, :, :] += instance.bond_x[x1 - 1, y0:y1, z0:z1] * ghost.x_hi
-    if y0 > 0 and ghost.y_lo is not None:
-        local_field[:, 0, :]  += instance.bond_y[x0:x1, y0 - 1, z0:z1] * ghost.y_lo
-    if y1 < instance.ny and ghost.y_hi is not None:
-        local_field[:, -1, :] += instance.bond_y[x0:x1, y1 - 1, z0:z1] * ghost.y_hi
-    if z0 > 0 and ghost.z_lo is not None:
-        local_field[:, :, 0]  += instance.bond_z[x0:x1, y0:y1, z0 - 1] * ghost.z_lo
-    if z1 < instance.nz and ghost.z_hi is not None:
-        local_field[:, :, -1] += instance.bond_z[x0:x1, y0:y1, z1 - 1] * ghost.z_hi
+    if y1 - y0 == ny:
+        ay = by * local_state
+        lf += np.roll(ay, 1, axis=1)
+        lf += by * np.roll(local_state, -1, axis=1)
+    else:
+        lf[:, :-1, :] += by[:, :-1, :] * local_state[:, 1:, :]   # +y interior
+        lf[:, 1:, :]  += by[:, :-1, :] * local_state[:, :-1, :]  # -y interior
+        if ghost.y_lo is not None:
+            lf[:, 0, :]  += instance.bond_y[x0:x1, (y0 - 1) % ny, z0:z1] * ghost.y_lo
+        if ghost.y_hi is not None:
+            lf[:, -1, :] += instance.bond_y[x0:x1, y1 - 1, z0:z1] * ghost.y_hi
 
-    return local_field
+    if z1 - z0 == nz:
+        az = bz * local_state
+        lf += np.roll(az, 1, axis=2)
+        lf += bz * np.roll(local_state, -1, axis=2)
+    else:
+        lf[:, :, :-1] += bz[:, :, :-1] * local_state[:, :, 1:]   # +z interior
+        lf[:, :, 1:]  += bz[:, :, :-1] * local_state[:, :, :-1]  # -z interior
+        if ghost.z_lo is not None:
+            lf[:, :, 0]  += instance.bond_z[x0:x1, y0:y1, (z0 - 1) % nz] * ghost.z_lo
+        if ghost.z_hi is not None:
+            lf[:, :, -1] += instance.bond_z[x0:x1, y0:y1, z1 - 1] * ghost.z_hi
+    return lf
 
 
 def _update_sites(
@@ -248,7 +259,6 @@ def _update_sites(
 
 
 def _snapshot_ghosts(state: np.ndarray, partitions: list[Partition]):
-    # captures full boundary information for each partition for a given state
     ghosts: dict[int, GhostBoundary] = {}
     nx, ny, nz = state.shape
 
@@ -256,13 +266,16 @@ def _snapshot_ghosts(state: np.ndarray, partitions: list[Partition]):
         x0, x1 = p.x_start, p.x_end
         y0, y1 = p.y_start, p.y_end
         z0, z1 = p.z_start, p.z_end
+        x_full = (x1 - x0 == nx)
+        y_full = (y1 - y0 == ny)
+        z_full = (z1 - z0 == nz)
         ghosts[p.partition_id] = GhostBoundary(
-            x_lo=state[x0 - 1, y0:y1, z0:z1].copy() if x0 > 0 else None,
-            x_hi=state[x1,     y0:y1, z0:z1].copy() if x1 < nx else None,
-            y_lo=state[x0:x1, y0 - 1, z0:z1].copy() if y0 > 0 else None,
-            y_hi=state[x0:x1, y1,     z0:z1].copy() if y1 < ny else None,
-            z_lo=state[x0:x1, y0:y1, z0 - 1].copy() if z0 > 0 else None,
-            z_hi=state[x0:x1, y0:y1, z1    ].copy() if z1 < nz else None,
+            x_lo=None if x_full else state[(x0 - 1) % nx, y0:y1, z0:z1].copy(),
+            x_hi=None if x_full else state[x1 % nx, y0:y1, z0:z1].copy(),
+            y_lo=None if y_full else state[x0:x1, (y0 - 1) % ny, z0:z1].copy(),
+            y_hi=None if y_full else state[x0:x1, y1 % ny, z0:z1].copy(),
+            z_lo=None if z_full else state[x0:x1, y0:y1, (z0 - 1) % nz].copy(),
+            z_hi=None if z_full else state[x0:x1, y0:y1, z1 % nz].copy(),
         )
     return ghosts
 

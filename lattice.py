@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-
+from collections.abc import Callable
 import numpy as np
 
 # info for each different "chip" in our simulation
@@ -82,15 +82,6 @@ def _ghost_boundary_to_float(ghost: GhostBoundary) -> GhostBoundary:
         z_lo=cast(ghost.z_lo), z_hi=cast(ghost.z_hi),
     )
 
-
-def _decay_ghost_boundary(ghost: GhostBoundary, decay: float) -> GhostBoundary:
-    def scale(face):
-        return None if face is None else (decay * face).astype(np.float32)
-    return GhostBoundary(
-        x_lo=scale(ghost.x_lo), x_hi=scale(ghost.x_hi),
-        y_lo=scale(ghost.y_lo), y_hi=scale(ghost.y_hi),
-        z_lo=scale(ghost.z_lo), z_hi=scale(ghost.z_hi),
-    )
 
 def random_bimodal_instance(
     nx: int,
@@ -280,94 +271,149 @@ def _snapshot_ghosts(state: np.ndarray, partitions: list[Partition]):
     return ghosts
 
 
-def simulate_monolithic(
-    instance: IsingInstance,
-    beta: float,
-    steps: int,
-    seed: int,
-    initial_state: np.ndarray | None = None,
-    record_history: bool = False,
-):
+def simulate_monolithic(instance: IsingInstance,beta: float, steps: int,seed:int, initial_state: np.ndarray, record_history: bool = False, record_every: int =1, on_step: Callable[[int, np.ndarray, float], None] | None = None):
     rng = np.random.default_rng(seed)
-    if initial_state is None:
-        state = random_spin_state(instance.nx, instance.ny, instance.nz, rng)
-    else:
-        state = initial_state.astype(np.int8).copy()
+    state = initial_state.astype(np.int8).copy()
 
-    x_idx = np.arange(instance.nx)[:, None, None]
-    y_idx = np.arange(instance.ny)[None, :, None]
-    z_idx = np.arange(instance.nz)[None, None, :]
-    even_mask = ((x_idx + y_idx + z_idx) % 2) == 0
+    #x y and z
+    x =np.arrange(instance.nx)[:,None,None]
+    y =np.arrange(instance.nx)[None,:,None]
+    z = np.arange(instance.nz)[None, None, :]
+    #stilll have to do the even odd thing
+    even_mask = ((x + y + z) % 2) == 0
     odd_mask = ~even_mask
-
     energies = np.empty(steps, dtype=np.float32)
-    history = (
-        np.empty((steps, instance.nx, instance.ny, instance.nz), dtype=np.int8)
-        if record_history else None
-    )
+    saved_states = [] if record_history else None
+
 
     for step in range(steps):
         lf = _full_local_field(state, instance)
-        _update_sites(state, lf, beta, even_mask, rng)   
+        _update_sites(state, lf, beta, even_mask, rng)
+
         lf = _full_local_field(state, instance)
-        _update_sites(state, lf, beta, odd_mask, rng)  
-        energies[step] = total_energy(state, instance)
-        if history is not None:
-            history[step] = state
+        _update_sites(state, lf, beta, odd_mask, rng)
 
-    return SimulationResult(energies=energies, final_state=state.copy(), history=history)
 
-def _simulate_partitioned(
-    instance: IsingInstance,
-    beta: float,
-    steps: int,
-    seed: int,
-    partition_spec: PartitionSpec,
-    communication_interval: int,
-    belief_decay: float | None = None,
-    initial_state: np.ndarray | None = None,
-    record_history: bool = False,
-) -> SimulationResult:
+        energy = total_energy(state, instance)
+        energies[step] = energy
+
+
+        if saved_states is not None and step % record_every == 0:
+            saved_states.append(state.copy())
+
+
+        #In theory should let another script look at the state each step. First time using the callable thing
+        if on_step is not None:
+            on_step(step, state, energy)
+
+    history = None
+    if saved_states:
+        history = np.stack(saved_states)
+
+
+
+    return SimulationResult(
+        energies=energies,
+        final_state=state.copy(),
+        history=history,
+    )
+
+
+
+def simulate_partitioned(instance: IsingInstance, beta: float, steps: int, seed: int, partition_spec: PartitionSpec, communication_interval: int,initial_state: np.ndarray | None = None,
+    ghost_update_fn: Callable[
+        [
+            int,
+            int,
+            dict[int, GhostBoundary],
+            np.ndarray,
+            IsingInstance,
+            list[Partition],
+            float,
+            np.random.Generator,
+        ],
+        dict[int, GhostBoundary],
+    ] | None = None,
+
+    record_history: bool = False, record_every: int = 1, on_step: Callable[[int, np.ndarray, float], None] | None = None):
     rng = np.random.default_rng(seed)
+
+
     if initial_state is None:
-        state = random_spin_state(instance.nx, instance.ny, instance.nz, rng)
+        state = random_spin_state(
+            instance.nx, instance.ny, instance.nz, rng
+        )
     else:
         state = initial_state.astype(np.int8).copy()
 
-    partitions = build_partitions(instance.nx, instance.ny, instance.nz, partition_spec)
-    energies = np.empty(steps, dtype=np.float32)
-    history = (
-        np.empty((steps, instance.nx, instance.ny, instance.nz), dtype=np.int8)
-        if record_history else None
+
+    partitions = build_partitions(
+        instance.nx,
+        instance.ny,
+        instance.nz,
+        partition_spec,
     )
+
+    energies = np.empty(steps, dtype=np.float32)
+    saved_states = [] if record_history else None
+
 
     ghosts = {
-        pid: _ghost_boundary_to_float(g)
-        for pid, g in _snapshot_ghosts(state, partitions).items()
+        pid: _ghost_boundary_to_float(ghost)
+        for pid, ghost in _snapshot_ghosts(state, partitions).items()
     }
 
+
     for step in range(steps):
-        if step % communication_interval == 0:
+
+        ghost_age = step % communication_interval
+
+
+        if ghost_age == 0:
+            # actual communication between partitions
             ghosts = {
-                pid: _ghost_boundary_to_float(g)
-                for pid, g in _snapshot_ghosts(state, partitions).items()
-            }
-        elif belief_decay is not None:
-            ghosts = {
-                pid: _decay_ghost_boundary(g, belief_decay)
-                for pid, g in ghosts.items()
+                pid: _ghost_boundary_to_float(ghost)
+                for pid, ghost in _snapshot_ghosts(
+                    state, partitions
+                ).items()
             }
 
-        # even half-sweep
+        elif ghost_update_fn is not None:
+
+            # another script can decide what to do with stale ghosts
+            ghosts = ghost_update_fn(
+                step,
+                ghost_age,
+                ghosts,
+                state,
+                instance,
+                partitions,
+                beta,
+                rng,
+            )
+
+
+        # if no ghost function was given, the ghosts stay frozen
+
+
+        # even half sweep
         read_state = state.copy()
         write_state = state.copy()
 
+
         for p in partitions:
+
             x0, x1 = p.x_start, p.x_end
             y0, y1 = p.y_start, p.y_end
             z0, z1 = p.z_start, p.z_end
 
-            local_state = write_state[x0:x1, y0:y1, z0:z1]
+
+            local_state = write_state[
+                x0:x1,
+                y0:y1,
+                z0:z1,
+            ]
+
 
             lf = _partition_local_field(
                 read_state,
@@ -375,6 +421,7 @@ def _simulate_partitioned(
                 p,
                 ghosts[p.partition_id],
             )
+
 
             _update_sites(
                 local_state,
@@ -384,18 +431,28 @@ def _simulate_partitioned(
                 rng,
             )
 
+
         state = write_state
 
-        # odd half-sweep
+
+        # odd half sweep
         read_state = state.copy()
         write_state = state.copy()
 
+
         for p in partitions:
+
             x0, x1 = p.x_start, p.x_end
             y0, y1 = p.y_start, p.y_end
             z0, z1 = p.z_start, p.z_end
 
-            local_state = write_state[x0:x1, y0:y1, z0:z1]
+
+            local_state = write_state[
+                x0:x1,
+                y0:y1,
+                z0:z1,
+            ]
+
 
             lf = _partition_local_field(
                 read_state,
@@ -403,6 +460,7 @@ def _simulate_partitioned(
                 p,
                 ghosts[p.partition_id],
             )
+
 
             _update_sites(
                 local_state,
@@ -412,48 +470,31 @@ def _simulate_partitioned(
                 rng,
             )
 
+
         state = write_state
-        energies[step] = total_energy(state, instance)
-        if history is not None:
-            history[step] = state
+
+
+        energy = total_energy(state, instance)
+        energies[step] = energy
+
+
+        if saved_states is not None and step % record_every == 0:
+            saved_states.append(state.copy())
+
+
+        if on_step is not None:
+            on_step(step, state, energy)
+
+
+    if saved_states:
+        history = np.stack(saved_states)
+    else:
+        history = None
+
 
     return SimulationResult(
         energies=energies,
         final_state=state.copy(),
         history=history,
         communication_interval=communication_interval,
-    )
-
-def simulate_partitioned_frozen(
-    instance: IsingInstance,
-    beta: float,
-    steps: int,
-    seed: int,
-    partition_spec: PartitionSpec,
-    communication_interval: int,
-    initial_state: np.ndarray | None = None,
-    record_history: bool = False,
-) -> SimulationResult:
-    # ghost values held fixed between communication 
-    return _simulate_partitioned(
-        instance, beta, steps, seed, partition_spec, communication_interval,
-        belief_decay=None, initial_state=initial_state, record_history=record_history,
-    )
-
-
-def simulate_partitioned_belief(
-    instance: IsingInstance,
-    beta: float,
-    steps: int,
-    seed: int,
-    partition_spec: PartitionSpec,
-    communication_interval: int,
-    belief_decay: float = 0.9,
-    initial_state: np.ndarray | None = None,
-    record_history: bool = False,
-):
-    # ghost values decayed toward zero between communication
-    return _simulate_partitioned(
-        instance, beta, steps, seed, partition_spec, communication_interval,
-        belief_decay=belief_decay, initial_state=initial_state, record_history=record_history,
     )

@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 from dataclasses import dataclass
 
 # comes from the simulation file
-from IsingOnCake.py import IsingInstance, random_bimodal_instance
+from lattice.py import IsingInstance, random_bimodal_instance, total_energy
 
 #vars
 #equilibrium dataset (dataclass)
@@ -16,11 +16,17 @@ class EquilibriumDataset:
     down: np.ndarray
     left: np.ndarray
     right: np.ndarray
+        # assign the parameters a value
+        # specify inverse temp
 
+    beta: float
     burn_in: int
 
+
 # calculate hamiltonian: calculates the total energy of model
-def calculate_hamiltonian(state: np.ndarray):
+def calculate_hamiltonian(state: np.ndarray, horizontal: np.ndarray, vertical: np.ndarray, fields):
+
+
 #hamiltonian H = -sum of (J_ij * s_i * s_j)
 
 # calculate energy change: calculates energy change if you flip 

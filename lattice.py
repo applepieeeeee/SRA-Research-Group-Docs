@@ -29,7 +29,6 @@ class Partition:
             self.z_end - self.z_start,
         )
 
-
 # IMPORTANT: the actual 3D Edwards-Anderson instance
 @dataclass(frozen=True)
 class IsingInstance:
@@ -279,12 +278,12 @@ def simulate_monolithic(instance: IsingInstance,beta: float, steps: int,seed:int
     x =np.arrange(instance.nx)[:,None,None]
     y =np.arrange(instance.nx)[None,:,None]
     z = np.arange(instance.nz)[None, None, :]
+
     #stilll have to do the even odd thing
     even_mask = ((x + y + z) % 2) == 0
     odd_mask = ~even_mask
     energies = np.empty(steps, dtype=np.float32)
     saved_states = [] if record_history else None
-
 
     for step in range(steps):
         lf = _full_local_field(state, instance)
@@ -293,14 +292,11 @@ def simulate_monolithic(instance: IsingInstance,beta: float, steps: int,seed:int
         lf = _full_local_field(state, instance)
         _update_sites(state, lf, beta, odd_mask, rng)
 
-
         energy = total_energy(state, instance)
         energies[step] = energy
 
-
         if saved_states is not None and step % record_every == 0:
             saved_states.append(state.copy())
-
 
         #In theory should let another script look at the state each step. First time using the callable thing
         if on_step is not None:
@@ -310,15 +306,11 @@ def simulate_monolithic(instance: IsingInstance,beta: float, steps: int,seed:int
     if saved_states:
         history = np.stack(saved_states)
 
-
-
     return SimulationResult(
         energies=energies,
         final_state=state.copy(),
         history=history,
     )
-
-
 
 def simulate_partitioned(instance: IsingInstance, beta: float, steps: int, seed: int, partition_spec: PartitionSpec, communication_interval: int,initial_state: np.ndarray | None = None,
     ghost_update_fn: Callable[

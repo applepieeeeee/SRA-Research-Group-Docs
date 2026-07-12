@@ -195,7 +195,7 @@ def _partition_local_field(
     bx = instance.bond_x[x0:x1, y0:y1, z0:z1]
     by = instance.bond_y[x0:x1, y0:y1, z0:z1]
     bz = instance.bond_z[x0:x1, y0:y1, z0:z1]
-
+    
     local_state = state[x0:x1, y0:y1, z0:z1]                       # this block's spins
     lf = instance.fields[x0:x1, y0:y1, z0:z1].astype(np.float32).copy()
 

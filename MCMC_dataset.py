@@ -74,7 +74,13 @@ def calculate_energy_change(state, instance, i, j, k):
 # calls calculate energy_change, if this is negative accept
 # if positive, accept with probability exp(-delta_E/T)
 # equation given from Boltzmann distrib.
-def metropolis_step():
+def metropolis_step(state, instance, beta):
+    change = calculate_energy_change(state, instance, i, j, k)
+    if (change >= 0):
+
+    else if (change < 0): 
+        # accept but only w certain probability
+
 
 # the 1000s of sweeps adr said we should do
 def run_mcmc():

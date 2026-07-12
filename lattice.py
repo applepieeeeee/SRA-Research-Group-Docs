@@ -273,8 +273,8 @@ def simulate_monolithic(instance: IsingInstance,beta: float, steps: int,seed:int
     state = initial_state.astype(np.int8).copy()
 
     #x y and z
-    x =np.arange(instance.nx)[:,None,None]
-    y =np.arange(instance.nx)[None,:,None]
+    x = np.arange(instance.nx)[:,None,None]
+    y = np.arange(instance.ny)[None,:,None]
     z = np.arange(instance.nz)[None, None, :]
 
     #stilll have to do the even odd thing

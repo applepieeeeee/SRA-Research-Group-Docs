@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from collections.abc import Callable
 import numpy as np
 
-# info for each different "chip" in our simulation
+# how many chips to cut the lattice into along each axis
 @dataclass(frozen=True)
 class PartitionSpec:
     blocks_x: int
@@ -15,7 +15,7 @@ class Partition:
     x_start: int
     x_end: int
     y_start: int
-    y_end: int 
+    y_end: int
     z_start: int
     z_end: int
     even_mask: np.ndarray   
@@ -71,6 +71,7 @@ class GhostBoundary:
     z_lo: np.ndarray | None
     z_hi: np.ndarray | None
 
+# casts the ghost boundary
 def _ghost_boundary_to_float(ghost: GhostBoundary) -> GhostBoundary:
     def cast(face):
         return None if face is None else face.astype(np.float32)
@@ -80,6 +81,7 @@ def _ghost_boundary_to_float(ghost: GhostBoundary) -> GhostBoundary:
         z_lo=cast(ghost.z_lo), z_hi=cast(ghost.z_hi),
     )
 
+# creates a random ising problem for our 3D EA model
 def random_bimodal_instance(
     nx: int,
     ny: int,
@@ -104,13 +106,16 @@ def random_bimodal_instance(
         fields=fields,
     )
 
+# creates a random grid of +/-1 spins
 def random_spin_state(nx: int, ny: int, nz: int, rng: np.random.Generator):
     # random grid of +/-1 spins
     return rng.choice(np.array([-1, 1], dtype=np.int8), size=(nx, ny, nz)).astype(np.int8)
 
+
 def build_partitions(nx: int, ny: int, nz: int, spec: PartitionSpec):
+    #Cuts the lattice into equal rectangular blocks, one per chip
     if nx % spec.blocks_x or ny % spec.blocks_y or nz % spec.blocks_z:
-        raise ValueError("how")
+        raise ValueError("Blocks can not be divided evenly")
 
     bx = nx // spec.blocks_x  # block size along each axis
     by = ny // spec.blocks_y
@@ -125,6 +130,7 @@ def build_partitions(nx: int, ny: int, nz: int, spec: PartitionSpec):
                 y0, y1 = iy * by, iy * by + by
                 z0, z1 = iz * bz, iz * bz + bz
 
+                # Global coordinates for this block 
                 xi = np.arange(x0, x1)[:, None, None]
                 yi = np.arange(y0, y1)[None, :, None]
                 zi = np.arange(z0, z1)[None, None, :]
@@ -147,7 +153,8 @@ def build_partitions(nx: int, ny: int, nz: int, spec: PartitionSpec):
     return partitions
 
 def total_energy(state: np.ndarray, instance: IsingInstance):
-    #Sums the energy
+    # Sums the energy 
+    # Sums the couplings and the fields
     x_term = np.sum(instance.bond_x * state * np.roll(state, -1, axis = 0))
     y_term = np.sum(instance.bond_y * state * np.roll(state, -1, axis = 1))
     z_term = np.sum(instance.bond_z * state * np.roll(state, -1, axis = 2))
@@ -155,18 +162,19 @@ def total_energy(state: np.ndarray, instance: IsingInstance):
     return float(-(x_term + y_term + z_term + field_term))
 
 
-#Calculates local field 
-def _full_local_field(state: np.ndarray, instance: IsingInstance) -> np.ndarray:
-    
+def _full_local_field(state: np.ndarray, instance: IsingInstance):
+    # Creates the local field
     lf = instance.fields.astype(np.float32).copy()
+
+    # 
     ax = instance.bond_x * state
     lf += np.roll(ax, 1, axis=0)
-
     lf += instance.bond_x * np.roll(state, -1, axis=0)
+
     ay = instance.bond_y * state
     lf += np.roll(ay, 1, axis=1)
-
     lf += instance.bond_y * np.roll(state, -1, axis=1)
+
     az = instance.bond_z * state
     lf += np.roll(az, 1, axis=2)
     lf += instance.bond_z * np.roll(state, -1, axis=2)
@@ -183,6 +191,7 @@ def _partition_local_field(
     y0, y1 = partition.y_start, partition.y_end
     z0, z1 = partition.z_start, partition.z_end
     nx, ny, nz = instance.nx, instance.ny, instance.nz
+    # stores the couplings in each of the three directions
     bx = instance.bond_x[x0:x1, y0:y1, z0:z1]
     by = instance.bond_y[x0:x1, y0:y1, z0:z1]
     bz = instance.bond_z[x0:x1, y0:y1, z0:z1]
@@ -190,19 +199,24 @@ def _partition_local_field(
     local_state = state[x0:x1, y0:y1, z0:z1]                       # this block's spins
     lf = instance.fields[x0:x1, y0:y1, z0:z1].astype(np.float32).copy()
 
-    # If the block spans
+    
     if x1 - x0 == nx:
+        # If the block spans the entire axis, no ghost is neeeded
         ax = bx * local_state
         lf += np.roll(ax, 1, axis=0)
         lf += bx * np.roll(local_state, -1, axis=0)
     else:
+        # if the block has neighbors, the local field for the block is also influenced by the ghost neighbors. 
+        # first add the local field (within the same chip)
         lf[:-1, :, :] += bx[:-1, :, :] * local_state[1:, :, :]   # +x interior
         lf[1:, :, :]  += bx[:-1, :, :] * local_state[:-1, :, :]  # -x interior
-        if ghost.x_lo is not None:
+        # adds the ghost field
+        if ghost.x_lo is not None:            
             lf[0, :, :]  += instance.bond_x[(x0 - 1) % nx, y0:y1, z0:z1] * ghost.x_lo
         if ghost.x_hi is not None:
             lf[-1, :, :] += instance.bond_x[x1 - 1, y0:y1, z0:z1] * ghost.x_hi
 
+    # same principle for other 2 axes
     if y1 - y0 == ny:
         ay = by * local_state
         lf += np.roll(ay, 1, axis=1)
@@ -267,6 +281,8 @@ def _snapshot_ghosts(state: np.ndarray, partitions: list[Partition]):
         y_full = (y1 - y0 == ny)
         z_full = (z1 - z0 == nz)
         ghosts[p.partition_id] = GhostBoundary(
+            
+            #if the parititon doesn't span the whole axis, then take a copy of the plan of spins immediately outside each of the 6 faces
             x_lo=None if x_full else state[(x0 - 1) % nx, y0:y1, z0:z1].copy(),
             x_hi=None if x_full else state[x1 % nx, y0:y1, z0:z1].copy(),
             y_lo=None if y_full else state[x0:x1, (y0 - 1) % ny, z0:z1].copy(),
@@ -286,7 +302,7 @@ def simulate_monolithic(instance: IsingInstance,beta: float, steps: int,seed:int
     y = np.arange(instance.ny)[None,:,None]
     z = np.arange(instance.nz)[None, None, :]
 
-    #stilll have to do the even odd thing
+    #still have to do the even odd thing
     even_mask = ((x + y + z) % 2) == 0
     odd_mask = ~even_mask
     energies = np.empty(steps, dtype=np.float32)

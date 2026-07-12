@@ -15,7 +15,7 @@ class Partition:
     x_start: int
     x_end: int
     y_start: int
-    y_end: int
+    y_end: int 
     z_start: int
     z_end: int
     even_mask: np.ndarray   
@@ -411,7 +411,6 @@ def simulate_partitioned(instance: IsingInstance, beta: float, steps: int, seed:
             x0, x1 = p.x_start, p.x_end
             y0, y1 = p.y_start, p.y_end
             z0, z1 = p.z_start, p.z_end
-
 
             local_state = write_state[
                 x0:x1,

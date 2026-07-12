@@ -16,6 +16,8 @@ class EquilibriumDataset:
     down: np.ndarray
     left: np.ndarray
     right: np.ndarray
+    front: np.ndarray
+    back: np.ndarray
         # assign the parameters a value
         # specify inverse temp
 
@@ -90,19 +92,38 @@ def metropolis_step(state, instance, beta, rng):
         flip = rng.random() < probability_accept
     
     if (flip):
-        state[i, j, k] *= -1
+        state[i, j, k] *= -1 
 
     return flip
 
 # the 1000s of sweeps adr said we should do
-def run_mcmc():
+def run_mcmc(
+    instance: IsingInstance, 
+    beta: float,
+    sweeps: int, 
+    seed: int,
+    initial_state: np.ndarray 
+):
+    rng.np.default_rng(seed) # reproducible value thing
+    nx = instance.nx
+    ny = instance.ny
+    nz = instance.nz
+
+    # the number of nodes we go thru per sweep is nx * ny * nz
+    sites = nx * ny * nz
+
+    for sweep in range(sweeps):
+
 
 # plot the steps vs. energy graph
     # deal w/ burn - in
 def plot_energy_vs_steps():
 
+
 def find_burn_in():
 
+
 def collect_samples():
+
 
 def generate_dataset():

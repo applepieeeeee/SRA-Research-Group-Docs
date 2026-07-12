@@ -62,10 +62,13 @@ def local_field(state, instance, i, j, k):
     
     return field
 
-
 # calculate energy change: calculates energy change if you flip 
 # an arbitrary spin. u need this for accept/reject step in mh
-def calculate_energy_change():
+def calculate_energy_change(state, instance, i, j, k):
+    this_field = local_field(state, instance, i, j, k)
+    this_spin = state[i, j, k]
+    energy_change = 2 * this_spin * this_field
+    return energy_change
 
 
 # calls calculate energy_change, if this is negative accept

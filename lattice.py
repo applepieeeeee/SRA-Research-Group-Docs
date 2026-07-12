@@ -177,7 +177,6 @@ def _full_local_field(state: np.ndarray, instance: IsingInstance) -> np.ndarray:
     lf += instance.bond_z * np.roll(state, -1, axis=2)
     return lf
 
-
 def _partition_local_field(
     state: np.ndarray,
     instance: IsingInstance,
@@ -232,7 +231,6 @@ def _partition_local_field(
         if ghost.z_hi is not None:
             lf[:, :, -1] += instance.bond_z[x0:x1, y0:y1, z1 - 1] * ghost.z_hi
     return lf
-
 
 def _update_sites(
     state_slice: np.ndarray,

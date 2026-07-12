@@ -49,6 +49,7 @@ class IsingInstance:
     def nz(self) -> int: #returns nz
         return int(self.fields.shape[2])
 
+
 @dataclass  # basically stores all results
 class SimulationResult:
     energies: np.ndarray                        # energy after every step
@@ -154,13 +155,21 @@ def total_energy(state: np.ndarray, instance: IsingInstance):
     return float(-(x_term + y_term + z_term + field_term))
 
 
+<<<<<<< Updated upstream
 def _full_local_field(state: np.ndarray, instance: IsingInstance):
+=======
+#Calculates local field 
+def _full_local_field(state: np.ndarray, instance: IsingInstance) -> np.ndarray:
+    
+>>>>>>> Stashed changes
     lf = instance.fields.astype(np.float32).copy()
     ax = instance.bond_x * state
     lf += np.roll(ax, 1, axis=0)
+
     lf += instance.bond_x * np.roll(state, -1, axis=0)
     ay = instance.bond_y * state
     lf += np.roll(ay, 1, axis=1)
+
     lf += instance.bond_y * np.roll(state, -1, axis=1)
     az = instance.bond_z * state
     lf += np.roll(az, 1, axis=2)
@@ -185,6 +194,7 @@ def _partition_local_field(
     local_state = state[x0:x1, y0:y1, z0:z1]                       # this block's spins
     lf = instance.fields[x0:x1, y0:y1, z0:z1].astype(np.float32).copy()
 
+    # If the block spans
     if x1 - x0 == nx:
         ax = bx * local_state
         lf += np.roll(ax, 1, axis=0)
@@ -312,8 +322,8 @@ def simulate_monolithic(instance: IsingInstance,beta: float, steps: int,seed:int
         final_state=state.copy(),
         history=history,
     )
-
-def simulate_partitioned(instance: IsingInstance, beta: float, steps: int, seed: int, partition_spec: PartitionSpec, communication_interval: int,initial_state: np.ndarray | None = None,
+ 
+def simulate_partitioned(instance: IsingInstance, beta: float, steps: int, seed: int, partition_spec: PartitionSpec, communication_interval: int, initial_state: np.ndarray | None = None,
     ghost_update_fn: Callable[
         [
             int,
@@ -332,9 +342,7 @@ def simulate_partitioned(instance: IsingInstance, beta: float, steps: int, seed:
     rng = np.random.default_rng(seed)
 
     if initial_state is None:
-        state = random_spin_state(
-            instance.nx, instance.ny, instance.nz, rng
-        )
+        state = random_spin_state(instance.nx, instance.ny, instance.nz, rng)
     else:
         state = initial_state.astype(np.int8).copy()
 
@@ -348,26 +356,51 @@ def simulate_partitioned(instance: IsingInstance, beta: float, steps: int, seed:
     energies = np.empty(steps, dtype=np.float32)
     saved_states = [] if record_history else None
 
-    ghosts = {
-        pid: _ghost_boundary_to_float(ghost)
-        for pid, ghost in _snapshot_ghosts(state, partitions).items()
-    }
+    def _exchange(current_state: np.ndarray) -> dict[int, GhostBoundary]:
+        # a real boundary exchange: every chip gets the true current edge spins
+        return {
+            partition_id: _ghost_boundary_to_float(ghost)
+            for partition_id, ghost in _snapshot_ghosts(current_state, partitions).items()
+        }
+
+    def _half_sweep(
+        current_state: np.ndarray,
+        ghosts: dict[int, GhostBoundary],
+        use_even: bool,
+    ) -> np.ndarray:
+        # one half pass across all chips.
+        # read_state is frozen for the whole pass, so chips can't peek at each other's 
+        # write_state collects the updates.
+        read_state = current_state.copy()
+        write_state = current_state.copy()
+
+        for p in partitions:
+            x0, x1 = p.x_start, p.x_end
+            y0, y1 = p.y_start, p.y_end
+            z0, z1 = p.z_start, p.z_end
+
+            local_state = write_state[x0:x1, y0:y1, z0:z1]  
+
+            lf = _partition_local_field(
+                read_state,
+                instance,
+                p,
+                ghosts[p.partition_id],
+            )
+
+            mask = p.even_mask if use_even else p.odd_mask
+            _update_sites(local_state, lf, beta, mask, rng)
+
+        return write_state
+
+    ghosts = _exchange(state)
 
     for step in range(steps):
         ghost_age = step % communication_interval
 
         if ghost_age == 0:
-            # actual communication between partitions
-            ghosts = {
-                pid: _ghost_boundary_to_float(ghost)
-                for pid, ghost in _snapshot_ghosts(
-                    state, partitions
-                ).items()
-            }
-
+            ghosts = _exchange(state)
         elif ghost_update_fn is not None:
-
-            # another script can decide what to do with stale ghosts
             ghosts = ghost_update_fn(
                 step,
                 ghost_age,
@@ -378,76 +411,16 @@ def simulate_partitioned(instance: IsingInstance, beta: float, steps: int, seed:
                 beta,
                 rng,
             )
+        # else: frozen
 
-        # if no ghost function was given, the ghosts stay frozen
+        #even half sweep
+        state = _half_sweep(state, ghosts, use_even=True)
 
-        # even half sweep
-        read_state = state.copy()
-        write_state = state.copy()
+        if ghost_age == 0:
+            ghosts = _exchange(state)
 
-        for p in partitions:
-
-            x0, x1 = p.x_start, p.x_end
-            y0, y1 = p.y_start, p.y_end
-            z0, z1 = p.z_start, p.z_end
-
-
-            local_state = write_state[
-                x0:x1,
-                y0:y1,
-                z0:z1,
-            ]
-
-            lf = _partition_local_field(
-                read_state,
-                instance,
-                p,
-                ghosts[p.partition_id],
-            )
-
-            _update_sites(
-                local_state,
-                lf,
-                beta,
-                p.even_mask,
-                rng,
-            )
-
-        state = write_state
-
-        # odd half sweep
-        read_state = state.copy()
-        write_state = state.copy()
-
-        for p in partitions:
-
-            x0, x1 = p.x_start, p.x_end
-            y0, y1 = p.y_start, p.y_end
-            z0, z1 = p.z_start, p.z_end
-
-
-            local_state = write_state[
-                x0:x1,
-                y0:y1,
-                z0:z1,
-            ]
-
-            lf = _partition_local_field(
-                read_state,
-                instance,
-                p,
-                ghosts[p.partition_id],
-            )
-
-            _update_sites(
-                local_state,
-                lf,
-                beta,
-                p.odd_mask,
-                rng,
-            )
-
-        state = write_state
+        #odd half sweep
+        state = _half_sweep(state, ghosts, use_even=False)
 
         energy = total_energy(state, instance)
         energies[step] = energy
@@ -458,10 +431,7 @@ def simulate_partitioned(instance: IsingInstance, beta: float, steps: int, seed:
         if on_step is not None:
             on_step(step, state, energy)
 
-    if saved_states:
-        history = np.stack(saved_states)
-    else:
-        history = None
+    history = np.stack(saved_states) if saved_states else None
 
     return SimulationResult(
         energies=energies,

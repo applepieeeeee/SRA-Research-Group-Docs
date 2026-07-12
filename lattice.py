@@ -49,7 +49,6 @@ class IsingInstance:
     def nz(self) -> int: #returns nz
         return int(self.fields.shape[2])
 
-
 @dataclass  # basically stores all results
 class SimulationResult:
     energies: np.ndarray                        # energy after every step
@@ -60,7 +59,6 @@ class SimulationResult:
     @property
     def best_energy(self) -> float:  # lowest energy seen over the run
         return float(np.min(self.energies))
-
 
 # boundary spins seen from neighbouring chips, one face per cardinal direction in 3D
 @dataclass(frozen=True)
@@ -80,7 +78,6 @@ def _ghost_boundary_to_float(ghost: GhostBoundary) -> GhostBoundary:
         y_lo=cast(ghost.y_lo), y_hi=cast(ghost.y_hi),
         z_lo=cast(ghost.z_lo), z_hi=cast(ghost.z_hi),
     )
-
 
 def random_bimodal_instance(
     nx: int,
@@ -106,11 +103,9 @@ def random_bimodal_instance(
         fields=fields,
     )
 
-
 def random_spin_state(nx: int, ny: int, nz: int, rng: np.random.Generator):
     # random grid of +/-1 spins
     return rng.choice(np.array([-1, 1], dtype=np.int8), size=(nx, ny, nz)).astype(np.int8)
-
 
 def build_partitions(nx: int, ny: int, nz: int, spec: PartitionSpec):
     if nx % spec.blocks_x or ny % spec.blocks_y or nz % spec.blocks_z:
@@ -150,7 +145,6 @@ def build_partitions(nx: int, ny: int, nz: int, spec: PartitionSpec):
                 partition_id += 1
     return partitions
 
-
 def total_energy(state: np.ndarray, instance: IsingInstance):
     #Sums the energy
     x_term = np.sum(instance.bond_x * state * np.roll(state, -1, axis = 0))
@@ -159,10 +153,8 @@ def total_energy(state: np.ndarray, instance: IsingInstance):
     field_term = np.sum(instance.fields * state)
     return float(-(x_term + y_term + z_term + field_term))
 
-
 def _sigmoid(x: np.ndarray) -> np.ndarray:
     return 1.0 / (1.0 + np.exp(-x))
-
 
 def _full_local_field(state: np.ndarray, instance: IsingInstance) -> np.ndarray:
     lf = instance.fields.astype(np.float32).copy()
@@ -243,8 +235,6 @@ def _update_sites(
     probabilities = _sigmoid(2.0 * beta * local_field[mask])
     draws = rng.random(probabilities.shape[0])
     state_slice[mask] = np.where(draws < probabilities, 1, -1).astype(np.int8)
-
-
 
 def _snapshot_ghosts(state: np.ndarray, partitions: list[Partition]):
     ghosts: dict[int, GhostBoundary] = {}
@@ -328,14 +318,12 @@ def simulate_partitioned(instance: IsingInstance, beta: float, steps: int, seed:
     record_history: bool = False, record_every: int = 1, on_step: Callable[[int, np.ndarray, float], None] | None = None):
     rng = np.random.default_rng(seed)
 
-
     if initial_state is None:
         state = random_spin_state(
             instance.nx, instance.ny, instance.nz, rng
         )
     else:
         state = initial_state.astype(np.int8).copy()
-
 
     partitions = build_partitions(
         instance.nx,
@@ -347,17 +335,13 @@ def simulate_partitioned(instance: IsingInstance, beta: float, steps: int, seed:
     energies = np.empty(steps, dtype=np.float32)
     saved_states = [] if record_history else None
 
-
     ghosts = {
         pid: _ghost_boundary_to_float(ghost)
         for pid, ghost in _snapshot_ghosts(state, partitions).items()
     }
 
-
     for step in range(steps):
-
         ghost_age = step % communication_interval
-
 
         if ghost_age == 0:
             # actual communication between partitions
@@ -382,14 +366,11 @@ def simulate_partitioned(instance: IsingInstance, beta: float, steps: int, seed:
                 rng,
             )
 
-
         # if no ghost function was given, the ghosts stay frozen
-
 
         # even half sweep
         read_state = state.copy()
         write_state = state.copy()
-
 
         for p in partitions:
 
@@ -404,14 +385,12 @@ def simulate_partitioned(instance: IsingInstance, beta: float, steps: int, seed:
                 z0:z1,
             ]
 
-
             lf = _partition_local_field(
                 read_state,
                 instance,
                 p,
                 ghosts[p.partition_id],
             )
-
 
             _update_sites(
                 local_state,
@@ -421,14 +400,11 @@ def simulate_partitioned(instance: IsingInstance, beta: float, steps: int, seed:
                 rng,
             )
 
-
         state = write_state
-
 
         # odd half sweep
         read_state = state.copy()
         write_state = state.copy()
-
 
         for p in partitions:
 
@@ -443,14 +419,12 @@ def simulate_partitioned(instance: IsingInstance, beta: float, steps: int, seed:
                 z0:z1,
             ]
 
-
             lf = _partition_local_field(
                 read_state,
                 instance,
                 p,
                 ghosts[p.partition_id],
             )
-
 
             _update_sites(
                 local_state,
@@ -460,27 +434,21 @@ def simulate_partitioned(instance: IsingInstance, beta: float, steps: int, seed:
                 rng,
             )
 
-
         state = write_state
-
 
         energy = total_energy(state, instance)
         energies[step] = energy
 
-
         if saved_states is not None and step % record_every == 0:
             saved_states.append(state.copy())
 
-
         if on_step is not None:
             on_step(step, state, energy)
-
 
     if saved_states:
         history = np.stack(saved_states)
     else:
         history = None
-
 
     return SimulationResult(
         energies=energies,

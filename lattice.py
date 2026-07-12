@@ -153,10 +153,8 @@ def total_energy(state: np.ndarray, instance: IsingInstance):
     field_term = np.sum(instance.fields * state)
     return float(-(x_term + y_term + z_term + field_term))
 
-def _sigmoid(x: np.ndarray) -> np.ndarray:
-    return 1.0 / (1.0 + np.exp(-x))
 
-def _full_local_field(state: np.ndarray, instance: IsingInstance) -> np.ndarray:
+def _full_local_field(state: np.ndarray, instance: IsingInstance):
     lf = instance.fields.astype(np.float32).copy()
     ax = instance.bond_x * state
     lf += np.roll(ax, 1, axis=0)
@@ -224,17 +222,32 @@ def _partition_local_field(
             lf[:, :, -1] += instance.bond_z[x0:x1, y0:y1, z1 - 1] * ghost.z_hi
     return lf
 
-def _update_sites(
-    state_slice: np.ndarray,
-    local_field: np.ndarray,
-    beta: float,
-    mask: np.ndarray,
-    rng: np.random.Generator,
-):
-    # calculates probabilities with sigmoid
-    probabilities = _sigmoid(2.0 * beta * local_field[mask])
-    draws = rng.random(probabilities.shape[0])
-    state_slice[mask] = np.where(draws < probabilities, 1, -1).astype(np.int8)
+
+
+
+def _update_sites(state_slice: np.ndarray, local_field: np.ndarray, beta: float, mask: np.ndarray, rng: np.random.Generator,):
+    current_spins = state_slice[mask].copy()
+    #energy change if flipped I think
+    delta_energy = 2.0 * current_spins * local_field[mask]
+
+    #accepts if energy is lowered, or neutral
+    accepted = delta_energy <= 0.0
+
+    #for all nodes where flipping increases energy
+    positive = delta_energy > 0.0
+    #for those nodes specifically, flip them with certain probability
+    accepted[positive] = (
+        rng.random(np.count_nonzero(positive))
+        < np.exp(-beta * delta_energy[positive])
+    )
+
+    #Actually flip  the accepted spins
+    current_spins[accepted] *= -1
+    state_slice[mask] = current_spins
+
+
+
+
 
 def _snapshot_ghosts(state: np.ndarray, partitions: list[Partition]):
     ghosts: dict[int, GhostBoundary] = {}

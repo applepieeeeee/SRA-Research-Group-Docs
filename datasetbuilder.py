@@ -4,6 +4,7 @@ from lattice import random_bimodal_instance, random_spin_state, simulate_monolit
 
 
 NX = NY = NZ = 12
+
 BETA = 1.0
 BURN_IN_SWEEPS = 5000
 NUM_SAMPLES = 2000

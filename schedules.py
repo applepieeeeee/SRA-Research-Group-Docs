@@ -13,4 +13,3 @@ def geometric_beta(steps: int, beta_start: float = 0.1, beta_end: float = 3.0) -
 def constant_beta(steps: int, beta: float = 1.0) -> np.ndarray:
     # Fixed temperature
     return np.full(steps, beta, dtype=np.float32)
-

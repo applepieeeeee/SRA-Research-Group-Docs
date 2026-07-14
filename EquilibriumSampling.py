@@ -9,7 +9,6 @@ SEED = 42
 
 rng = np.random.default_rng(SEED)
 
-
 instance = random_bimodal_instance(NX, NY, NZ, rng)
 initial_state = random_spin_state(NX, NY, NZ, rng)
 
@@ -53,8 +52,6 @@ def equilibrium_update(step, ghost_age, ghosts, state, instance, partitions, bet
 
 def frozen(step, ghost_age, ghosts, state, instance, partitions, beta, rng):
            return ghosts
-
-
 
 frozenresult = simulate_partitioned(instance=instance, beta=BETA, steps=STEPS, seed=SEED, partition_spec=PartitionSpec(2, 2, 2), communication_interval=10, initial_state=initial_state, ghost_update_fn=frozen)
 print("Frozen Best energy:", frozenresult.best_energy)

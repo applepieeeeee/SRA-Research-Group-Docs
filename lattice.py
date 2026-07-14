@@ -160,12 +160,10 @@ def total_energy(state: np.ndarray, instance: IsingInstance):
     field_term = np.sum(instance.fields * state)
     return float(-(x_term + y_term + z_term + field_term))
 
-
 def _full_local_field(state: np.ndarray, instance: IsingInstance):
     # Creates the local field
     lf = instance.fields.astype(np.float32).copy()
-
-    # 
+    
     ax = instance.bond_x * state
     lf += np.roll(ax, 1, axis=0)
     lf += instance.bond_x * np.roll(state, -1, axis=0)
@@ -198,7 +196,6 @@ def _partition_local_field(
     local_state = state[x0:x1, y0:y1, z0:z1]                       # this block's spins
     lf = instance.fields[x0:x1, y0:y1, z0:z1].astype(np.float32).copy()
 
-    
     if x1 - x0 == nx:
         # If the block spans the entire axis, no ghost is neeeded
         ax = bx * local_state
@@ -241,9 +238,6 @@ def _partition_local_field(
             lf[:, :, -1] += instance.bond_z[x0:x1, y0:y1, z1 - 1] * ghost.z_hi
     return lf
 
-
-
-
 def _update_sites(state_slice: np.ndarray, local_field: np.ndarray, beta: float, mask: np.ndarray, rng: np.random.Generator,):
     current_spins = state_slice[mask].copy()
     #energy change if flipped I think
@@ -263,10 +257,6 @@ def _update_sites(state_slice: np.ndarray, local_field: np.ndarray, beta: float,
     #Actually flip  the accepted spins
     current_spins[accepted] *= -1
     state_slice[mask] = current_spins
-
-
-
-
 
 def _snapshot_ghosts(state: np.ndarray, partitions: list[Partition]):
     ghosts: dict[int, GhostBoundary] = {}
@@ -290,7 +280,6 @@ def _snapshot_ghosts(state: np.ndarray, partitions: list[Partition]):
             z_hi=None if z_full else state[x0:x1, y0:y1, z1 % nz].copy(),
         )
     return ghosts
-
 
 def simulate_monolithic(instance: IsingInstance,beta: float, steps: int,seed:int, initial_state: np.ndarray, record_history: bool = False, record_every: int =1, on_step: Callable[[int, np.ndarray, float], None] | None = None):
     rng = np.random.default_rng(seed)

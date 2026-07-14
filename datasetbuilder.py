@@ -2,7 +2,6 @@ import numpy as np
 
 from lattice import random_bimodal_instance, random_spin_state, simulate_monolithic
 
-
 NX = NY = NZ = 12
 
 BETA = 1.0
@@ -16,14 +15,12 @@ initial_state = random_spin_state(NX, NY, NZ, rng)
 
 equilibrium_states = []
 
-
 def collect_sample(step, state, energy):
     completed_sweeps = step + 1
     sweeps_after_burn_in = completed_sweeps - BURN_IN_SWEEPS
 
     if (sweeps_after_burn_in > 0):
         equilibrium_states.append(state.copy())
-
 
 total_sweeps = BURN_IN_SWEEPS + NUM_SAMPLES
 

@@ -49,7 +49,6 @@ class IsingInstance:
     def nz(self) -> int: #returns nz
         return int(self.fields.shape[2])
 
-
 @dataclass  # basically stores all results
 class SimulationResult:
     energies: np.ndarray                        # energy after every step

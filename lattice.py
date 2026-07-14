@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from collections.abc import Callable
 import numpy as np
-
+ 
 # how many chips to cut the lattice into along each axis
 @dataclass(frozen=True)
 class PartitionSpec:

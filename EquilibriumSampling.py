@@ -6,7 +6,7 @@ NX = NY = NZ = 12
 BETA = 1.0
 STEPS = 100000
 SEED = 42
-
+ 
 rng = np.random.default_rng(SEED)
 
 instance = random_bimodal_instance(NX, NY, NZ, rng)

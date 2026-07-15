@@ -160,10 +160,12 @@ def total_energy(state: np.ndarray, instance: IsingInstance):
     field_term = np.sum(instance.fields * state)
     return float(-(x_term + y_term + z_term + field_term))
 
+
 def _full_local_field(state: np.ndarray, instance: IsingInstance):
     # Creates the local field
     lf = instance.fields.astype(np.float32).copy()
-    
+
+    # 
     ax = instance.bond_x * state
     lf += np.roll(ax, 1, axis=0)
     lf += instance.bond_x * np.roll(state, -1, axis=0)
@@ -196,6 +198,7 @@ def _partition_local_field(
     local_state = state[x0:x1, y0:y1, z0:z1]                       # this block's spins
     lf = instance.fields[x0:x1, y0:y1, z0:z1].astype(np.float32).copy()
 
+    
     if x1 - x0 == nx:
         # If the block spans the entire axis, no ghost is neeeded
         ax = bx * local_state
@@ -238,6 +241,9 @@ def _partition_local_field(
             lf[:, :, -1] += instance.bond_z[x0:x1, y0:y1, z1 - 1] * ghost.z_hi
     return lf
 
+
+
+
 def _update_sites(state_slice: np.ndarray, local_field: np.ndarray, beta: float, mask: np.ndarray, rng: np.random.Generator,):
     current_spins = state_slice[mask].copy()
     #energy change if flipped I think
@@ -257,6 +263,10 @@ def _update_sites(state_slice: np.ndarray, local_field: np.ndarray, beta: float,
     #Actually flip  the accepted spins
     current_spins[accepted] *= -1
     state_slice[mask] = current_spins
+
+
+
+
 
 def _snapshot_ghosts(state: np.ndarray, partitions: list[Partition]):
     ghosts: dict[int, GhostBoundary] = {}
@@ -281,7 +291,23 @@ def _snapshot_ghosts(state: np.ndarray, partitions: list[Partition]):
         )
     return ghosts
 
-def simulate_monolithic(instance: IsingInstance,beta: float, steps: int,seed:int, initial_state: np.ndarray, record_history: bool = False, record_every: int =1, on_step: Callable[[int, np.ndarray, float], None] | None = None):
+def _resolve_beta(beta: float | np.ndarray, steps: int) -> np.ndarray:
+    # Normalizes the beta into an array of length "steps" for our schedule
+
+    if np.isscalar(beta):
+        # if beta is constant, creates array with size "steps" filled with beta
+        return np.full(steps, float(beta), dtype=np.float32)
+
+    
+    betas = np.asarray(beta, dtype=np.float32)
+    if betas.shape != (steps,):
+        # prevents schedules that are of wrong shape
+        raise ValueError(
+            f"beta schedule has shape {betas.shape}, expected ({steps},)"
+        )
+    return betas
+
+def simulate_monolithic(instance: IsingInstance,beta: float | np.ndarray, steps: int,seed:int, initial_state: np.ndarray, record_history: bool = False, record_every: int =1, on_step: Callable[[int, np.ndarray, float], None] | None = None):
     rng = np.random.default_rng(seed)
     state = initial_state.astype(np.int8).copy()
 
@@ -296,12 +322,16 @@ def simulate_monolithic(instance: IsingInstance,beta: float, steps: int,seed:int
     energies = np.empty(steps, dtype=np.float32)
     saved_states = [] if record_history else None
 
+    betas = _resolve_beta(beta, steps)
+
     for step in range(steps):
-        lf = _full_local_field(state, instance)
-        _update_sites(state, lf, beta, even_mask, rng)
+        beta_f = float(betas[step])
 
         lf = _full_local_field(state, instance)
-        _update_sites(state, lf, beta, odd_mask, rng)
+        _update_sites(state, lf, beta_f, even_mask, rng)
+
+        lf = _full_local_field(state, instance)
+        _update_sites(state, lf, beta_f, odd_mask, rng)
 
         energy = total_energy(state, instance)
         energies[step] = energy
@@ -323,7 +353,7 @@ def simulate_monolithic(instance: IsingInstance,beta: float, steps: int,seed:int
         history=history,
     )
  
-def simulate_partitioned(instance: IsingInstance, beta: float, steps: int, seed: int, partition_spec: PartitionSpec, communication_interval: int, initial_state: np.ndarray | None = None,
+def simulate_partitioned(instance: IsingInstance, beta: float | np.ndarray, steps: int, seed: int, partition_spec: PartitionSpec, communication_interval: int, initial_state: np.ndarray | None = None,
     ghost_update_fn: Callable[
         [
             int,
@@ -356,6 +386,8 @@ def simulate_partitioned(instance: IsingInstance, beta: float, steps: int, seed:
     energies = np.empty(steps, dtype=np.float32)
     saved_states = [] if record_history else None
 
+    betas = _resolve_beta(beta, steps)
+
     def _exchange(current_state: np.ndarray) -> dict[int, GhostBoundary]:
         # a real boundary exchange: every chip gets the true current edge spins
         return {
@@ -367,6 +399,7 @@ def simulate_partitioned(instance: IsingInstance, beta: float, steps: int, seed:
         current_state: np.ndarray,
         ghosts: dict[int, GhostBoundary],
         use_even: bool,
+        beta_f: float,
     ) -> np.ndarray:
         # one half pass across all chips.
         # read_state is frozen for the whole pass, so chips can't peek at each other's 
@@ -389,13 +422,14 @@ def simulate_partitioned(instance: IsingInstance, beta: float, steps: int, seed:
             )
 
             mask = p.even_mask if use_even else p.odd_mask
-            _update_sites(local_state, lf, beta, mask, rng)
+            _update_sites(local_state, lf, beta_f, mask, rng)
 
         return write_state
 
     ghosts = _exchange(state)
 
     for step in range(steps):
+        beta_f = float(betas[step])
         ghost_age = step % communication_interval
 
         if ghost_age == 0:
@@ -408,19 +442,19 @@ def simulate_partitioned(instance: IsingInstance, beta: float, steps: int, seed:
                 state,
                 instance,
                 partitions,
-                beta,
+                beta_f,
                 rng,
             )
         # else: frozen
 
         #even half sweep
-        state = _half_sweep(state, ghosts, use_even=True)
+        state = _half_sweep(state, ghosts, use_even=True, beta_f = beta_f)
 
         if ghost_age == 0:
             ghosts = _exchange(state)
 
         #odd half sweep
-        state = _half_sweep(state, ghosts, use_even=False)
+        state = _half_sweep(state, ghosts, use_even=False, beta_f = beta_f)
 
         energy = total_energy(state, instance)
         energies[step] = energy

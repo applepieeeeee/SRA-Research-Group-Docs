@@ -18,7 +18,7 @@ fig, ax = plt.subplots(figsize=(5.2, 4.2), dpi=200)
 
 ax.plot(np.arange(N_STEPS), T, color="#0b2994", linewidth=2.2)
 
-ax.set_title("Annealing Schedule", fontsize=16, pad=10)
+ax.set_title("Annealing Schedule", fontsize=25, pad=10)
 ax.set_xlabel("Steps", fontsize=16)
 ax.set_ylabel("Temperature", fontsize=16)
 
@@ -27,7 +27,9 @@ ax.set_ylim(0, T.max() * 1.05)
 
 ax.spines['top'].set_visible(False)
 ax.spines['right'].set_visible(False)
-ax.tick_params(labelsize=8)
+
+ax.set_xticks([0, 2000, 4000])
+ax.tick_params(axis='both', labelsize=14)
 ax.grid(False)
 
 fig.tight_layout()
